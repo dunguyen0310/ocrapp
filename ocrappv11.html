@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Article Formatter (Strict Output)</title>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; margin: 0; padding: 20px; background-color: #f4f4f4; color: #333; display: flex; flex-direction: column; align-items: center; }
+        .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.1); width: 90%; max-width: 800px; }
+        h1 { color: #333; text-align: center; margin-bottom: 10px; }
+        .sub-heading { text-align: center; font-size: 0.95em; color: #555; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="file"], input[type="password"], input[type="text"] { display: block; margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: calc(100% - 22px); box-sizing: border-box; }
+        .api-key-note { font-size: 0.8em; color: #777; margin-bottom:15px; padding: 8px; background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px; }
+
+        .button-container { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .button-container button { flex-basis: calc(33.333% - 10px); /* Adjust based on number of buttons */ }
+
+
+        button { background-color: #007bff; color: white; padding: 12px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; /* Adjusted font size */ transition: background-color 0.3s ease; flex-grow: 1; min-width: 100px; /* Adjusted min-width */ }
+        button#copyMarkdownButton { background-color: #28a745; }
+        button#copyAsHtmlButton { background-color: #17a2b8; } /* Teal for Copy HTML */
+        button#downloadHtmlButton { background-color: #fd7e14; } /* Orange for Download */
+        button#enhanceWithAIButton { background-color: #6f42c1; } /* Purple for AI */
+        button:hover { opacity: 0.85; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; opacity: 0.7; }
+        
+        #status, #aiStatus { margin-bottom: 10px; padding: 10px; background-color: #e9ecef; border-radius: 4px; border: 1px solid #ced4da; min-height: 20px; font-size: 0.9em; text-align: center; word-wrap: break-word; }
+        #aiStatus.hidden { display: none; }
+        #progress-bar-container { width: 100%; background-color: #e9ecef; border-radius: 4px; margin-bottom: 10px; height: 20px; overflow: hidden; }
+        #progress-bar { width: 0%; height: 100%; background-color: #007bff; text-align: center; line-height: 20px; color: white; font-size: 0.8em; transition: width 0.3s ease-in-out; }
+        
+        .editor-pane { margin-top: 10px; }
+        #markdownSourceTextarea { width: calc(100% - 22px); height: 300px; margin-top: 5px; padding: 10px; border: 1px solid #ddd; border-radius: 4px 4px 0 0; font-family: monospace; white-space: pre-wrap; background-color: #fdfdfd; font-size: 0.95em; resize: vertical; }
+        #renderedMarkdownDiv { width: calc(100% - 22px); min-height: 300px; margin-top: 0px; padding: 10px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 4px 4px; background-color: #fff; overflow-y: auto; }
+        #renderedMarkdownDiv h1 { font-size: 2em;} #renderedMarkdownDiv h2 { font-size: 1.5em;} #renderedMarkdownDiv h3 { font-size: 1.17em;} 
+        #renderedMarkdownDiv p { margin-bottom: 1em; } #renderedMarkdownDiv strong { font-weight: bold; }
+        .footer { margin-top: 30px; text-align: center; font-size: 0.9em; color: #777; }
+    </style>
+</head><body>
+    <div class="container">
+        <h1>AI-Powered Article Formatter (Strict Output)</h1>
+        <p class="sub-heading">Extracts text, uses AI to refine structure, and provides export options for Google Docs.</p>
+
+        <label for="imageUpload">1. Choose image(s) (name sequentially e.g., 01.jpg, 02.jpg):</label>
+        <input type="file" id="imageUpload" multiple accept="image/*">
+
+        <div class="button-container">
+            <button id="extractButton">2. Extract & Initial Format</button>
+        </div>
+        
+        <hr>
+        <label for="geminiApiKey">3. Gemini API Key (Required for AI Enhancement):</label>
+        <input type="password" id="geminiApiKey" placeholder="Paste your Gemini API Key here">
+        <div class="api-key-note">
+            <strong>Note:</strong> Your API key is used directly from your browser. For production, use a backend. Get key from Google AI Studio. Stored in session storage for this session.
+        </div>
+        <div class="button-container">
+            <button id="enhanceWithAIButton" disabled>✨ 4. Enhance with AI (Strict Formatting)</button>
+        </div>
+        <div id="aiStatus" class="hidden">AI is thinking...</div>
+        
+        <hr>
+        <label>5. Output & Export Options:</label>
+        <div class="button-container">
+            <button id="copyMarkdownButton" disabled>Copy Markdown</button>
+            <button id="copyAsHtmlButton" disabled>Copy as HTML (for GDocs)</button>
+            <button id="downloadHtmlButton" disabled>Download .html (for GDocs)</button>
+        </div>
+
+        <label for="status">Processing Status (OCR):</label>
+        <div id="status">Ready. Select images and click "Extract & Initial Format".</div>
+        <div id="progress-bar-container" style="display: none;">
+            <div id="progress-bar">0%</div>
+        </div>
+        
+        <div class="editor-pane">
+            <label for="markdownSourceTextarea">Editable Markdown Source (AI Enhanced):</label>
+            <textarea id="markdownSourceTextarea" placeholder="Extracted and formatted Markdown will appear here. You can edit it directly."></textarea>
+        </div>
+        
+        <div class="editor-pane">
+            <label for="renderedMarkdownDiv">Live HTML Preview:</label>
+            <div id="renderedMarkdownDiv" class="markdown-preview">Preview will appear here...</div>
+        </div>
+    </div>
+    <div class="footer">
+        Powered by Tesseract.js, Marked.js, and Gemini AI
+    </div>
+
+    <script>
+        const imageUpload = document.getElementById('imageUpload');
+        const extractButton = document.getElementById('extractButton');
+        const copyMarkdownButton = document.getElementById('copyMarkdownButton');
+        const copyAsHtmlButton = document.getElementById('copyAsHtmlButton');    
+        const downloadHtmlButton = document.getElementById('downloadHtmlButton'); 
+        const enhanceWithAIButton = document.getElementById('enhanceWithAIButton');
+        const geminiApiKeyInput = document.getElementById('geminiApiKey');
+        const statusDiv = document.getElementById('status');
+        const aiStatusDiv = document.getElementById('aiStatus');
+        const markdownSourceTextarea = document.getElementById('markdownSourceTextarea'); 
+        const renderedMarkdownDiv = document.getElementById('renderedMarkdownDiv'); 
+        const progressBarContainer = document.getElementById('progress-bar-container');
+        const progressBar = document.getElementById('progress-bar');
+
+        let tesseractScheduler;
+        const BASE_FONT_SIZE_GUESS = 12; 
+
+        if (sessionStorage.getItem('geminiApiKey_ocrapp')) {
+            geminiApiKeyInput.value = sessionStorage.getItem('geminiApiKey_ocrapp');
+        }
+        geminiApiKeyInput.addEventListener('input', () => {
+            sessionStorage.setItem('geminiApiKey_ocrapp', geminiApiKeyInput.value);
+            updateButtonStates();
+        });
+
+        function updateButtonStates() {
+             const hasText = markdownSourceTextarea.value.trim().length > 0;
+             const hasApiKey = geminiApiKeyInput.value.trim().length > 0;
+             enhanceWithAIButton.disabled = !hasText || !hasApiKey;
+             copyMarkdownButton.disabled = !hasText;
+             copyAsHtmlButton.disabled = !hasText;
+             downloadHtmlButton.disabled = !hasText;
+        }
+
+        function renderMarkdown() {
+            const markdownText = markdownSourceTextarea.value;
+            if (window.marked && typeof window.marked.parse === 'function') {
+                renderedMarkdownDiv.innerHTML = window.marked.parse(markdownText, { gfm: true, breaks: true });
+            } else {
+                renderedMarkdownDiv.textContent = "Markdown renderer (Marked.js) not loaded.";
+            }
+            updateButtonStates();
+        }
+        markdownSourceTextarea.addEventListener('input', renderMarkdown);
+        markdownSourceTextarea.addEventListener('keyup', renderMarkdown);
+
+        async function initializeTesseract() { /* ... same as before ... */ 
+            statusDiv.textContent = 'Initializing Tesseract.js...';
+            extractButton.disabled = true;
+            progressBarContainer.style.display = 'block';
+            progressBar.style.width = '0%'; progressBar.textContent = '0%';
+            try {
+                tesseractScheduler = Tesseract.createScheduler();
+                const numWorkers = navigator.hardwareConcurrency || 2;
+                for (let i = 0; i < numWorkers; i++) {
+                    const worker = await Tesseract.createWorker('vie', Tesseract.OEM.LSTM_ONLY, { 
+                        logger: m => { 
+                            if (['recognizing text', 'loading language model', 'initializing tesseract'].includes(m.status)) {
+                                const progress = Math.max(0, Math.min(100, Math.round(m.progress * 100)));
+                                progressBar.style.width = progress + '%';
+                                progressBar.textContent = `${progress}% (${m.status})`;
+                            }
+                        },
+                        langPath: 'https://tessdata.projectnaptha.com/4.0.0_best', 
+                        initialJobParams: { tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK }
+                    });
+                    tesseractScheduler.addWorker(worker);
+                }
+                statusDiv.textContent = 'Tesseract.js initialized. Ready to extract.';
+            } catch (error) {
+                statusDiv.textContent = 'Error initializing Tesseract.js: ' + error.message;
+                console.error(error);
+            } finally {
+                extractButton.disabled = false; 
+                progressBarContainer.style.display = 'none';
+            }
+        }
+        initializeTesseract();
+
+        function formatPageDataToMarkdown(pageData) { /* ... same as before ... */ 
+            let markdownLines = [];
+            if (!pageData || !pageData.paragraphs) return "";
+            for (const paragraph of pageData.paragraphs) {
+                const pLinesTxt = paragraph.lines.map(l=>l.text.trim()).filter(t=>t.length>0);
+                if(pLinesTxt.length === 0) continue;
+                const fullPTxt = pLinesTxt.join('\n');
+                const firstL = paragraph.lines[0];
+                if(!firstL || !firstL.words || firstL.words.length === 0) {markdownLines.push(fullPTxt); continue;}
+                let sumFS=0, boldWC=0;
+                firstL.words.forEach(w=>{sumFS+=w.font_size||BASE_FONT_SIZE_GUESS; if(w.is_bold)boldWC++;});
+                const avgFS = sumFS / firstL.words.length;
+                const isBold = (boldWC/firstL.words.length)>=0.6;
+                if(isBold){
+                    if(avgFS >= BASE_FONT_SIZE_GUESS*1.8 && pLinesTxt.length <=2) markdownLines.push("# "+fullPTxt);
+                    else if(avgFS >= BASE_FONT_SIZE_GUESS*1.4 && pLinesTxt.length <=3) markdownLines.push("## "+fullPTxt);
+                    else if(avgFS >= BASE_FONT_SIZE_GUESS*1.15 && pLinesTxt.length <=4) markdownLines.push("### "+fullPTxt);
+                    else markdownLines.push("**"+fullPTxt+"**");
+                } else {
+                    if(avgFS >= BASE_FONT_SIZE_GUESS*2.0 && pLinesTxt.length <=2) markdownLines.push("# "+fullPTxt);
+                    else if(avgFS >= BASE_FONT_SIZE_GUESS*1.6 && pLinesTxt.length <=3) markdownLines.push("## "+fullPTxt);
+                    else markdownLines.push(fullPTxt);
+                }
+            }
+            return markdownLines.join('\n\n');
+        }
+
+        extractButton.addEventListener('click', async () => { /* ... same as before, ensure updateButtonStates() is called at the end ... */ 
+            const selectedFiles = imageUpload.files;
+            if (selectedFiles.length === 0) { statusDiv.textContent = "Please select image(s)."; return; }
+            let filesArray = Array.from(selectedFiles);
+            filesArray.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+            
+            extractButton.disabled = true;
+            updateButtonStates(); 
+            markdownSourceTextarea.value = ''; 
+            renderedMarkdownDiv.innerHTML = '';
+            statusDiv.textContent = `Preparing to OCR ${filesArray.length} image(s)...`;
+            progressBarContainer.style.display = 'block';
+            let combinedFormattedArticle = "";
+            let filesSuccessfullyProcessed = 0, filesFailedProcessing = 0;
+            let erroredFileNames = [];
+
+            for (let i = 0; i < filesArray.length; i++) {
+                const file = filesArray[i];
+                statusDiv.textContent = `OCR Processing image ${i + 1}/${filesArray.length}: ${file.name}`;
+                progressBar.style.width = '0%'; progressBar.textContent = '0%';
+                try {
+                    const { data } = await tesseractScheduler.addJob('recognize', file); 
+                    const formattedPageText = formatPageDataToMarkdown(data);
+                    if (combinedFormattedArticle.length > 0 && formattedPageText.length > 0) {
+                        combinedFormattedArticle += "\n\n\n"; 
+                    }
+                    combinedFormattedArticle += formattedPageText;
+                    filesSuccessfullyProcessed++;
+                } catch (error) {
+                    erroredFileNames.push(file.name);
+                    filesFailedProcessing++; console.error(`Error OCR processing ${file.name}:`, error);
+                }
+                markdownSourceTextarea.value = combinedFormattedArticle;
+                renderMarkdown(); 
+                let overallProgress = Math.round(((i + 1) / filesArray.length) * 100);
+                progressBar.style.width = overallProgress + '%'; 
+                progressBar.textContent = `${overallProgress}% (Files Processed)`;
+            }
+            let finalStatus = `OCR Complete. ${filesSuccessfullyProcessed} image(s) processed.`;
+            if (filesFailedProcessing > 0) finalStatus += ` ${filesFailedProcessing} image(s) failed: ${erroredFileNames.join(', ')}.`;
+            statusDiv.textContent = finalStatus;
+            extractButton.disabled = false;
+            progressBarContainer.style.display = 'none';
+            renderMarkdown(); 
+        });
+
+        enhanceWithAIButton.addEventListener('click', async () => {
+            const apiKey = geminiApiKeyInput.value.trim();
+            if (!apiKey) { aiStatusDiv.textContent = "⚠️ Gemini API Key is required."; aiStatusDiv.classList.remove('hidden'); return; }
+            const currentMarkdown = markdownSourceTextarea.value;
+            if (currentMarkdown.trim().length === 0) { aiStatusDiv.textContent = "Nothing to enhance."; aiStatusDiv.classList.remove('hidden'); return; }
+            
+            aiStatusDiv.textContent = "✨ AI is thinking... please wait.";
+            aiStatusDiv.classList.remove('hidden');
+            enhanceWithAIButton.disabled = true; copyMarkdownButton.disabled = true; copyAsHtmlButton.disabled = true; downloadHtmlButton.disabled = true;
+
+            // --- MODIFIED PROMPT ---
+            const prompt = `Your SOLE TASK is to reformat the following Markdown text, which was extracted from Vietnamese application content.
+Adhere strictly to these formatting guidelines and output ONLY the reformatted Markdown:
+
+1.  Analyze the input Markdown and understand its intended structure (titles, main headings (H1/H2), sub-headings (H3/H4), paragraphs, bullet points, numbered lists, bold/italics for emphasis).
+2.  Identify a clear main title for the entire content if one is apparent. Use H1 (#) for this main title.
+3.  Identify primary section headings. Use H2 (##) for these.
+4.  Identify sub-section headings. Use H3 (###) or H4 (####) as appropriate.
+5.  Ensure paragraphs are well-formed and flow logically.
+6.  Correctly format bullet points (using '*' or '-' consistently) or numbered lists if they appear.
+7.  Apply bolding (**text**) or italics (*text*) for emphasis where it seems appropriate from the context or common formatting conventions, but do not overdo it. If emphasis (like existing asterisks) already exists, preserve or refine it into correct Markdown.
+8.  Remove any OCR artifacts or redundant/incorrect Markdown from the input if possible. For example, if a line is already bold and also identified as a heading, just use the heading markdown.
+9.  Pay close attention to Vietnamese language specifics and common UI presentation styles for articles or app content.
+10. If there are multiple distinct sections that were clearly from different images, try to maintain a logical flow or separation if appropriate (e.g., by ensuring appropriate heading levels or paragraph breaks).
+
+CRITICAL: Your entire response MUST be *only* the reformatted Markdown content. Do not include any explanations, apologies, conversational filler, or any text whatsoever before or after the Markdown output.
+
+Here is the text to reformat:
+---
+${currentMarkdown}
+---
+`;
+            
+            const API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                generationConfig: { // --- ADDED generationConfig ---
+                  temperature: 0.2, // Lower for more deterministic, less "creative" output
+                  maxOutputTokens: 4096, // Ensure enough tokens for potentially long articles
+                  // topP: 0.95, // Example, can be tuned
+                  // topK: 40   // Example, can be tuned
+                }
+            };
+
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error("Gemini API Error Response:", errorData);
+                    throw new Error(`Gemini API request failed with status ${response.status}: ${errorData.error?.message || 'Unknown API error'}`);
+                }
+
+                const responseData = await response.json();
+                console.log("Gemini API Success Response:", responseData);
+
+                let formattedText = "";
+                if (responseData.candidates && responseData.candidates.length > 0 &&
+                    responseData.candidates[0].content && responseData.candidates[0].content.parts &&
+                    responseData.candidates[0].content.parts.length > 0) {
+                    formattedText = responseData.candidates[0].content.parts[0].text;
+                } else { 
+                    if (responseData.promptFeedback && responseData.promptFeedback.blockReason) {
+                        throw new Error(`Content blocked by API. Reason: ${responseData.promptFeedback.blockReason}. Details: ${responseData.promptFeedback.blockReasonMessage || JSON.stringify(responseData.promptFeedback.safetyRatings)}`);
+                    }
+                    throw new Error("Could not extract formatted text from Gemini's response. Structure might be unexpected or content missing.");
+                }
+                
+                markdownSourceTextarea.value = formattedText.trim(); // Trim to remove potential leading/trailing newlines from AI
+                renderMarkdown();
+                aiStatusDiv.textContent = "✅ AI enhancement complete!";
+                setTimeout(() => aiStatusDiv.classList.add('hidden'), 4000);
+
+            } catch (error) {
+                console.error("Error calling Gemini API:", error);
+                aiStatusDiv.textContent = `⚠️ AI Enhancement Failed: ${error.message}`;
+            } finally { 
+                updateButtonStates(); 
+            }
+        });
+
+        copyMarkdownButton.addEventListener('click', () => { /* ... same as before ... */ 
+            const textToCopy = markdownSourceTextarea.value;
+            if (!textToCopy) { statusDiv.textContent = "Nothing to copy."; return; }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    copyMarkdownButton.textContent = 'Copied!'; statusDiv.textContent = 'Markdown copied!';
+                    setTimeout(() => { copyMarkdownButton.textContent = 'Copy Markdown'; updateButtonStates(); statusDiv.textContent = 'Ready.'; }, 2000); 
+                }).catch(err => { statusDiv.textContent = 'Failed to copy markdown.'; console.error(err); });
+            } else { 
+                 try { markdownSourceTextarea.select(); document.execCommand('copy'); copyMarkdownButton.textContent = 'Copied!'; statusDiv.textContent = 'Markdown copied (fallback)!'; setTimeout(() => {copyMarkdownButton.textContent = 'Copy Markdown'; updateButtonStates(); statusDiv.textContent = 'Ready.';}, 2000);}
+                 catch(e){statusDiv.textContent = 'Copy failed.';}
+            }
+        });
+        copyAsHtmlButton.addEventListener('click', () => { /* ... same as before ... */ 
+            const markdownText = markdownSourceTextarea.value;
+            if (!markdownText.trim()) { statusDiv.textContent = "Nothing to copy as HTML."; return; }
+            if (window.marked && typeof window.marked.parse === 'function') {
+                const htmlContent = window.marked.parse(markdownText, { gfm: true, breaks: true });
+                try {
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const clipboardItem = new ClipboardItem({ 'text/html': blob });
+                    navigator.clipboard.write([clipboardItem]).then(() => {
+                        copyAsHtmlButton.textContent = 'HTML Copied!'; statusDiv.textContent = 'Formatted HTML copied! Paste into Google Docs.';
+                        setTimeout(() => { copyAsHtmlButton.textContent = 'Copy as HTML (for GDocs)'; updateButtonStates(); statusDiv.textContent = 'Ready.'; }, 2500);
+                    }).catch(err => { console.error('Failed to copy HTML:', err); statusDiv.textContent = 'Failed to copy HTML. Try downloading.'; });
+                } catch (e) { console.error('Error copying HTML:', e); statusDiv.textContent = 'Copying HTML failed. Try downloading.'; }
+            } else { statusDiv.textContent = "Markdown renderer not loaded."; }
+        });
+        downloadHtmlButton.addEventListener('click', () => { /* ... same as before ... */ 
+            const markdownText = markdownSourceTextarea.value;
+            if (!markdownText.trim()) { statusDiv.textContent = "Nothing to download."; return; }
+            if (window.marked && typeof window.marked.parse === 'function') {
+                const htmlContent = window.marked.parse(markdownText, { gfm: true, breaks: true });
+                const fullHtmlDoc = `<!DOCTYPE html>\n<html lang="vi">\n<head>\n<meta charset="UTF-8">\n<title>Extracted Article</title>\n<style>body{font-family:sans-serif;line-height:1.6;}h1{font-size:2em;}h2{font-size:1.5em;}h3{font-size:1.17em;}</style>\n</head>\n<body>\n${htmlContent}\n</body>\n</html>`;
+                const blob = new Blob([fullHtmlDoc], { type: 'text/html;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'extracted_article.html';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                statusDiv.textContent = 'HTML file download initiated.'; downloadHtmlButton.textContent = "Downloaded!";
+                 setTimeout(() => { downloadHtmlButton.textContent = 'Download .html (for GDocs)'; updateButtonStates(); statusDiv.textContent = 'Ready.'; }, 2500);
+            } else { statusDiv.textContent = "Markdown renderer not loaded."; }
+        });
+
+        imageUpload.addEventListener('change', () => { /* ... same as before ... */ 
+            markdownSourceTextarea.value = ''; 
+            renderedMarkdownDiv.innerHTML = '';
+            updateButtonStates();
+            if (imageUpload.files.length > 0) {
+                const sortedFileNames = Array.from(imageUpload.files).map(f => f.name).sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'})).join(', ');
+                statusDiv.textContent = `${imageUpload.files.length} image(s) selected. Order: ${sortedFileNames}. Ready to extract.`;
+            } else { statusDiv.textContent = 'No images selected.'; }
+        });
+        updateButtonStates(); // Initial call
+    </script>
+</body>
+</html>
